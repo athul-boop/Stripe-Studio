@@ -85,7 +85,7 @@ input[type=color]::-moz-color-swatch{border:0;border-radius:0}
 .btnrow{display:flex;gap:6px;flex-wrap:wrap}
 .hint{color:var(--faint);font-size:11px}
 .imgbox{display:flex;gap:8px;align-items:center}
-.thumb{width:40px;height:40px;border:1px solid var(--line2);background:#0a0a0a center/cover no-repeat;flex:none}
+.thumb{width:40px;height:40px;border:1px solid var(--line2);background:#0a0a0a;flex:none;overflow:hidden}
 
 .stage{grid-area:stage;position:relative;display:grid;place-items:center;overflow:hidden;
   background-color:var(--bg);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:32px 32px;background-position:-1px -1px}
@@ -230,6 +230,7 @@ input[type=color]::-moz-color-swatch{border:0;border-radius:0}
 </div>
 <div class="toast" id="toast" role="status"></div>
 <input type="file" id="fileImg" accept="image/*,video/*" hidden>
+<input type="file" id="fileRev" accept="image/*" hidden>
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 
 <script>
@@ -255,14 +256,17 @@ const SCHEMA = [
   ]},
   { title: 'Grid', items: [
     { type: 'select', key: 'layout', label: 'Layout', def: 'stacks', options: [['stacks', 'Stacks'], ['radial', 'Radial burst']] },
-    R('cols', 'Columns', 1, 300, 1, 29),
-    R('rows', 'Rows', 1, 120, 1, 11),
+    R('cols', 'Columns', 1, 300, 1, 29, { show: p => !p.sizePx }),
+    R('rows', 'Rows', 1, 120, 1, 11, { show: p => !p.sizePx }),
+    R('colW', 'Column width (px)', 4, 400, 1, 45, { show: p => p.sizePx }),
+    R('rowH', 'Row height (px)', 4, 2000, 1, 160, { show: p => p.sizePx }),
     R('rowGap', 'Row gap', 0, 80, 0.5, 0),
     R('rowVar', 'Row height mix', 0, 1, 0.01, 0),
-    R('colGrowth', 'Column growth per row', 0.25, 4, 0.01, 1),
+    R('colGrowth', 'Column growth', 0.25, 4, 0.01, 1),
+    R('growEvery', 'Rows per growth step', 1, 20, 1, 1),
     R('rowGrowth', 'Row size growth', 0.25, 4, 0.01, 1),
     R('oddCut', 'Odd column cut', 0, 1, 0.01, 0),
-    { type: 'hint', tag: 'hintGrowth', text: 'Column growth splits or merges columns row by row (0.5 halves them). It uses separate blocks.' },
+    { type: 'hint', tag: 'hintGrowth', text: 'Column growth splits or merges columns every few rows (0.5 halves them). Rows in the same step stay connected.' },
     { type: 'sub', label: 'Radial', show: p => p.layout === 'radial' },
     R('radCX', 'Centre x', 0, 1, 0.01, 0.5, { show: p => p.layout === 'radial' }),
     R('radCY', 'Centre y', 0, 1, 0.01, 0.5, { show: p => p.layout === 'radial' }),
@@ -306,7 +310,8 @@ const SCHEMA = [
     R('curve', 'Curve', 0.2, 4, 0.01, 1),
     R('steps', 'Steps (0 = smooth)', 0, 16, 1, 0),
     { type: 'toggle', key: 'invert', label: 'Invert', def: false },
-    { type: 'toggle', key: 'altInvert', label: 'Flip every other row', def: false },
+    { type: 'toggle', key: 'altInvert', label: 'Flip rows', def: false },
+    R('flipEvery', 'Rows per flip', 1, 20, 1, 1, { anim: false, show: p => p.altInvert }),
   ]},
   { title: 'Bars', items: [
     { type: 'select', key: 'join', label: 'Rows', def: 'connected', options: [['connected', 'Connected stacks'], ['separate', 'Separate blocks']] },
@@ -326,16 +331,39 @@ const SCHEMA = [
   ]},
   { title: 'Colour', items: [
     { type: 'select', key: 'bgMode', label: 'Background', def: 'solid', options: [['solid', 'Solid'], ['linear', 'Gradient'], ['none', 'None (transparent)']] },
-    { type: 'hint', text: 'PNG and SVG keep the transparency. MP4 can\u2019t, so video renders on black.', show: p => p.bgMode === 'none' },
+    { type: 'hint', tag: 'bgHint', text: 'PNG and SVG keep the transparency. MP4 can\u2019t, so video renders on black.', show: p => p.bgMode === 'none' },
     { type: 'color', key: 'bg1', label: 'Colour', def: '#ffffff', show: p => p.bgMode !== 'none' },
     { type: 'color', key: 'bg2', label: 'Colour 2', def: '#9a9a9a', show: p => p.bgMode === 'linear' },
     R('bgAngle', 'Angle', 0, 360, 1, 90, { show: p => p.bgMode === 'linear' }),
     { type: 'sub', label: 'Bar fill' },
     { type: 'select', key: 'fillMode', label: 'Fill', def: 'solid', options: [['solid', 'Solid'], ['value', 'Map by width'], ['canvas', 'Gradient across canvas'], ['bar', 'Gradient along bars']] },
     { type: 'color', key: 'fill1', label: 'Colour', def: '#000000', show: p => p.fillMode === 'solid' },
-    { type: 'palette', show: p => p.fillMode !== 'solid' },
+    { type: 'palette', tag: 'palette', show: p => p.fillMode !== 'solid' },
     R('fillAngle', 'Angle', 0, 360, 1, 90, { show: p => p.fillMode === 'canvas' }),
-    { type: 'buttons', buttons: [['Swap background and bars', 'swap']] },
+    { type: 'buttons', tag: 'swap', buttons: [['Swap background and bars', 'swap']] },
+  ]},
+  { title: 'Reveal', items: [
+    { type: 'revimage', show: p => p.revOn },
+    { type: 'select', key: 'revType', label: 'Type', def: 'windows', options: [['windows', 'Image inside bars'], ['shutters', 'Bars cover image'], ['overlay', 'Image with bars on top']], show: p => p.revOn },
+    R('revProgress', 'Reveal', 0, 1, 0.001, 0.5, { show: p => p.revOn }),
+    { type: 'hint', text: 'Keyframe Reveal from 0 to 1 to animate it. 0 is solid colour, 1 is the full photo.', show: p => p.revOn },
+    { type: 'select', key: 'revTiming', label: 'Timing', def: 'wave', options: [['all', 'All at once'], ['wave', 'Sweep'], ['center', 'Centre out'], ['random', 'Random']], show: p => p.revOn },
+    R('revAngle', 'Sweep angle', 0, 360, 1, 90, { show: p => p.revOn && p.revTiming === 'wave' }),
+    R('revSpread', 'Stagger', 0.05, 1, 0.01, 0.5, { show: p => p.revOn && p.revTiming !== 'all' }),
+    { type: 'select', key: 'revGrain', label: 'Random by', def: 'column', options: [['column', 'Column'], ['cell', 'Cell']], show: p => p.revOn && p.revTiming === 'random' },
+    R('revWaves', 'Wave count', 1, 10, 1, 1, { show: p => p.revOn && p.revTiming !== 'all' }),
+    R('revInfluence', 'Pattern influence', 0, 0.95, 0.01, 0.6, { show: p => p.revOn }),
+    R('revBarW', 'Bar width', 0.05, 1, 0.01, 1, { show: p => p.revOn }),
+    R('revEnd', 'Full reveal at end', 0, 0.6, 0.01, 0.2, { show: p => p.revOn }),
+    { type: 'color', key: 'revCover', label: 'Start colour', def: '#000000', show: p => p.revOn },
+    R('revLineOp', 'Line opacity', 0, 1, 0.01, 0.85, { show: p => p.revOn && p.revType === 'overlay' }),
+    { type: 'hint', text: 'Lines use the bar colour and min/max width from Bars.', show: p => p.revOn && p.revType === 'overlay' },
+    { type: 'sub', label: 'Photo', show: p => p.revOn },
+    { type: 'toggle', key: 'revGray', label: 'Black and white photo', def: false, show: p => p.revOn },
+    { type: 'select', key: 'revFit', label: 'Fit', def: 'cover', options: [['cover', 'Fill'], ['contain', 'Fit inside']], show: p => p.revOn },
+    R('revZoom', 'Zoom', 1, 3, 0.01, 1, { show: p => p.revOn }),
+    R('revX', 'Pan x', -1, 1, 0.01, 0, { show: p => p.revOn }),
+    R('revY', 'Pan y', -1, 1, 0.01, 0, { show: p => p.revOn }),
   ]},
   { title: 'Layer 2', items: [
     { type: 'toggle', key: 'l2On', label: 'Add a second colour layer', def: false },
@@ -375,7 +403,7 @@ const RANGE = {}; const ORDER = [];
 SCHEMA.forEach(s => s.items.forEach(it => { if (it.type === 'range') { RANGE[it.key] = it; ORDER.push(it.key); } }));
 
 function defaults() {
-  const d = { palette: [{ c: '#000000', p: 0 }, { c: '#7a7a7a', p: 1 }], duration: 6, fps: 30 };
+  const d = { palette: [{ c: '#000000', p: 0 }, { c: '#7a7a7a', p: 1 }], duration: 6, fps: 30, revOn: false, sizePx: false };
   SCHEMA.forEach(s => s.items.forEach(it => { if (it.key && 'def' in it) d[it.key] = it.def; }));
   return d;
 }
@@ -545,7 +573,8 @@ function buildBars(p, t) {
   }
   const ox = radial ? 0 : p.padX * W, oy = radial ? 0 : (p.padY + p.padTop) * H, inset = !radial && (p.padX > 0 || p.padY > 0 || p.padTop > 0);
   const fx = p._fx || 0, fy = p._fy || 0, co = p._colOff || 0;
-  const rows = Math.max(1, p.rows), nR = Math.ceil(rows - 1e-9);
+  const rows = p.sizePx ? Math.max(1, (LH + p.rowGap) / (Math.max(1, p.rowH) + p.rowGap)) : Math.max(1, p.rows), nR = Math.ceil(rows - 1e-9);
+  const baseCols = p.sizePx ? Math.max(0.25, LW / Math.max(1, p.colW)) : p.cols;
   const baseH = Math.max(0.5, (LH - p.rowGap * (rows - 1)) / rows);
   const seed = p.seed | 0;
   const ws = []; let sum = 0;
@@ -554,8 +583,8 @@ function buildBars(p, t) {
   const fc = { p, t, aspect: LW / LH, perm: getPerm(seed), vert, rad: RD, LH };
   const bars = [], shiftC = cyc(p.shiftSpeed, t, p);
   const grow = Math.abs(p.colGrowth - 1) > 1e-4;
-  const conn = p.join === 'connected' && !grow;
-  const colsFor = r => { const c = Math.min(3000, Math.max(0.25, p.cols * Math.pow(p.colGrowth, r))); return radial ? Math.max(1, Math.round(c)) : c; };
+  const conn = p.join === 'connected' && !p.revOn, gEvery = Math.max(1, Math.round(p.growEvery || 1));
+  const colsFor = r => { const c = Math.min(3000, Math.max(0.25, baseCols * Math.pow(p.colGrowth, Math.floor(r / gEvery)))); return radial ? Math.max(1, Math.round(c)) : c; };
   const mapR = (x, y, xc) => { const th = xc / LW * TAU + RD.rot, cs = Math.cos(th), sn = Math.sin(th), rr = RD.r0 + y, off = (x - xc) * RD.k; return [RD.cx + cs * rr - sn * off, RD.cy + sn * rr + cs * off]; };
   const colCells = new Map(), cutY = LH * (1 - p.oddCut), sk = Math.abs(p.skew);
   let y = 0;
@@ -568,10 +597,17 @@ function buildBars(p, t) {
     for (let c = c0; c <= c1; c++) {
       if (p.oddCut > 0 && (c & 1) && y + h > cutY + 0.01) continue;
       let v = field(fc, (c + 0.5) / cols + fx, cy + fy);
-      if (p.altInvert && (r & 1)) v = 1 - v;
+      if (p.altInvert && (Math.floor(r / Math.max(1, Math.round(p.flipEvery || 1))) & 1)) v = 1 - v;
       const hidden = p.hideBelow > 0 && v < p.hideBelow;
       if (hidden && !conn) continue;
-      const w = hidden ? 0 : period * (p.minW + (p.maxW - p.minW) * v);
+      let w;
+      if (p.revOn) {
+        const f = revealF(p, v, c, r, (c + 0.5) / cols, cy, seed);
+        const e = p.revEnd > 0 ? clamp01((p.revProgress - (1 - p.revEnd)) / p.revEnd) : 0;
+        const fb = f * p.revBarW, fr = fb + (1 - fb) * e;
+        w = p.revType === 'shutters' ? period * (1 - fr) + (fr < 0.999 ? 0.6 : 0) : period * fr + (fr > 0.001 ? 0.6 : 0);
+      }
+      else w = hidden ? 0 : period * (p.minW + (p.maxW - p.minW) * v);
       if (!conn && w <= 0.05) continue;
       let a = p.anchor;
       if (a === 'alternate') a = r % 2 ? 'right' : 'left';
@@ -580,10 +616,10 @@ function buildBars(p, t) {
       let x = a === 'left' ? x0 : a === 'right' ? x0 + period - w : x0 + (period - w) / 2;
       x += rs;
       if (p.jitter) x += p.jitter * period * (hash3(r, c + 1000, seed + 3) * 2 - 1);
-      if (conn) { (colCells.get(c) || colCells.set(c, []).get(c)).push({ x, y, w: Math.max(0, w), h, v, xc }); continue; }
+      if (conn) { const ck = Math.floor(r / gEvery) + ':' + c; (colCells.get(ck) || colCells.set(ck, []).get(ck)).push({ x, y, w: Math.max(0, w), h, v, xc }); continue; }
       if (radial) { bars.push({ pts: poly({ x, y, w, h }, p).map(q => mapR(q[0], q[1], xc)), x, y, w, h, v, r }); continue; }
       if (x > LW + sk || x + w < -sk) continue;
-      bars.push({ x, y, w, h, v, r });
+      bars.push({ x, y, w, h: p.revOn ? h + 0.6 : h, v, r });
     }
     y += h + p.rowGap;
   }
@@ -704,6 +740,62 @@ function drawBars(ctx, F, p, s, W, H, op) {
   }
   ctx.globalAlpha = 1;
 }
+/* ---------- Reveal ---------- */
+let REV = null;
+function revealF(p, v, c, r, x, y, seed) {
+  const P_ = clamp01(p.revProgress), sp = Math.max(0.05, p.revSpread);
+  let a;
+  if (p.revTiming === 'all') a = P_;
+  else {
+    let o;
+    if (p.revTiming === 'wave') {
+      const an = p.revAngle * Math.PI / 180, cs = Math.cos(an), sn = Math.sin(an);
+      const pr = [0, cs, sn, cs + sn], lo = Math.min(...pr), hi = Math.max(...pr);
+      o = hi > lo ? (x * cs + y * sn - lo) / (hi - lo) : 0;
+    } else if (p.revTiming === 'center') o = clamp01(Math.hypot(x - 0.5, y - 0.5) / 0.7072);
+    else o = hash3(c, p.revGrain === 'cell' ? r : 0, seed + 9);
+    const n = Math.max(1, Math.round(p.revWaves || 1));
+    if (n === 1) a = clamp01((P_ * (1 + sp) - o) / sp);
+    else {
+      const Tt = 0.4, wd = sp * Tt + 1e-3; let sum = 0;
+      for (let k = 0; k < n; k++) sum += clamp01((P_ - k / n * (1 - Tt) - o * Tt) / wd);
+      a = sum / n;
+    }
+  }
+  const L = clamp(p.revInfluence, 0, 0.95);
+  return clamp01((a - (1 - v) * L) / (1 - L));
+}
+function revFitRect(iw, ih, W, H, p) {
+  const k = (p.revFit === 'contain' ? Math.min(W / iw, H / ih) : Math.max(W / iw, H / ih)) * p.revZoom;
+  const w = iw * k, h = ih * k;
+  return { x: (W - w) / 2 + p.revX * Math.abs(w - W) / 2, y: (H - h) / 2 + p.revY * Math.abs(h - H) / 2, w, h };
+}
+const revSrc = p => REV ? (p.revGray ? REV.gray : REV.orig) : null;
+function revPlaceholder(ctx, W, H) {
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#3a3a3a'); g.addColorStop(1, '#bdbdbd');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function revLinesP(p) { return Object.assign({}, p, { revOn: false, fillMode: 'solid', fadeOpacity: 0, hideBelow: 0 }); }
+function drawReveal(ctx, p, t, s, W, H) {
+  const F = buildBars(p, t), img = revSrc(p);
+  const scr = () => ctx.setTransform(s, 0, 0, s, 0, 0);
+  const lay = () => F.vert ? ctx.setTransform(s, 0, 0, s, F.ox * s, F.oy * s) : ctx.setTransform(0, s, s, 0, F.ox * s, F.oy * s);
+  const drawImg = () => { scr(); if (!img) { revPlaceholder(ctx, W, H); return; } const R_ = revFitRect(img.width, img.height, W, H, p); ctx.drawImage(img, R_.x, R_.y, R_.w, R_.h); };
+  const path = () => { lay(); ctx.beginPath(); for (const b of F.bars) emit(ctx, poly(b, p), p.radius); };
+  if (p.revType === 'shutters') {
+    scr(); ctx.fillStyle = p.revCover; ctx.fillRect(0, 0, W, H);
+    ctx.save(); scr(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+    drawImg(); if (F.bars.length) { path(); scr(); ctx.fillStyle = p.revCover; ctx.fill(); }
+    ctx.restore();
+  } else {
+    scr(); ctx.fillStyle = p.revCover; ctx.fillRect(0, 0, W, H);
+    if (p.revProgress >= 0.999 && (p.revEnd > 0 || p.revBarW >= 0.999)) drawImg();
+    else if (F.bars.length) { ctx.save(); path(); scr(); ctx.clip(); drawImg(); ctx.restore(); }
+    if (p.revType === 'overlay') { const q = revLinesP(p); drawBars(ctx, buildBars(q, t), q, s, W, H, p.revLineOp); }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return F.bars.length;
+}
 function drawFrame(ctx, p, t, s) {
   const W = p.width, H = p.height;
   ctx.setTransform(s, 0, 0, s, 0, 0);
@@ -713,6 +805,7 @@ function drawFrame(ctx, p, t, s) {
     ctx.fillStyle = p.bgMode === 'linear' ? linGrad(ctx, W, H, p.bgAngle, [{ c: p.bg1, p: 0 }, { c: p.bg2, p: 1 }]) : p.bg1;
     ctx.fillRect(0, 0, W, H);
   }
+  if (p.revOn) return drawReveal(ctx, p, t, s, W, H);
   const F1 = buildBars(p, t);
   let n = F1.bars.length;
   if (p.l2On) {
@@ -776,6 +869,22 @@ function svgString(p, t) {
     out.push('</g></g>');
     return out.join('');
   };
+  if (p.revOn) {
+    const F = buildBars(p, t), img = revSrc(p), sk = sink();
+    F.bars.forEach(b => emit(sk, poly(b, p), p.radius));
+    const tr = F.vert ? `translate(${f(F.ox)} ${f(F.oy)})` : `matrix(0 1 1 0 ${f(F.ox)} ${f(F.oy)})`;
+    let imgEl;
+    if (img) { const R_ = revFitRect(img.width, img.height, W, H, p); imgEl = `<image href="${img.toDataURL('image/jpeg', 0.9)}" x="${f(R_.x)}" y="${f(R_.y)}" width="${f(R_.w)}" height="${f(R_.h)}" preserveAspectRatio="none"/>`; }
+    else { defs.push('<linearGradient id="ph" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a3a3a"/><stop offset="1" stop-color="#bdbdbd"/></linearGradient>'); imgEl = `<rect width="${W}" height="${H}" fill="url(#ph)"/>`; }
+    const parts = [`<rect width="${W}" height="${H}" fill="${p.revCover}"/>`];
+    if (p.revType === 'shutters') { parts.push(imgEl); if (F.bars.length) parts.push(`<path transform="${tr}" fill="${p.revCover}" d="${sk.d()}"/>`); }
+    else {
+      if (p.revProgress >= 0.999 && (p.revEnd > 0 || p.revBarW >= 0.999)) parts.push(imgEl);
+      else if (F.bars.length) { defs.push(`<clipPath id="rv"><path transform="${tr}" d="${sk.d()}"/></clipPath>`); parts.push(`<g clip-path="url(#rv)">${imgEl}</g>`); }
+      if (p.revType === 'overlay') { const q = revLinesP(p); parts.push(layerSvg(buildBars(q, t), q, p.revLineOp, null)); }
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><clipPath id="c"><rect width="${W}" height="${H}"/></clipPath>${defs.join('')}</defs><g clip-path="url(#c)">${parts.join('')}</g></svg>`;
+  }
   const F1 = buildBars(p, t), L1 = layerSvg(F1, p, 1, null);
   if (p.l2On) {
     const p2 = layer2(p), L2 = layerSvg(buildBars(p2, t), p2, p.l2Opacity, p.l2Blend);
@@ -823,13 +932,14 @@ const panel = $('#panel'), controls = {}, SECTIONS = [];
 let showAll = false;
 const RADIAL_K = ['radCX', 'radCY', 'radInner', 'radOuter', 'radRot', 'rayWidth', 'spinSpeed'];
 const L2_K = ['l2On', 'l2Color', 'l2Blend', 'l2Order', 'l2Opacity', 'l2OffX', 'l2OffY', 'l2ColOff', 'l2SeedOff', 'l2Invert', 'hintL2'];
-const GROW_K = ['colGrowth', 'hintGrowth'], SHIFTW_K = ['shiftWave', 'shiftFreq', 'shiftSpeed'], FADE_K = ['fadeOpacity', 'hideBelow'], PAD_K = ['padX', 'padY', 'padTop'];
+const GROW_K = ['colGrowth', 'growEvery', 'hintGrowth'], SHIFTW_K = ['shiftWave', 'shiftFreq', 'shiftSpeed'], FADE_K = ['fadeOpacity', 'hideBelow'], PAD_K = ['padX', 'padY', 'padTop'];
 const VAR_HIDE = {
   stacks: ['layout', 'altInvert', ...RADIAL_K, ...L2_K, ...GROW_K, 'rowGrowth', 'oddCut', ...FADE_K, ...PAD_K],
   diagonal: ['layout', 'altInvert', ...RADIAL_K, ...L2_K, ...GROW_K, 'oddCut', ...FADE_K, ...PAD_K, ...SHIFTW_K, 'jitter', 'skew', 'rowVar'],
-  split: ['layout', 'altInvert', ...RADIAL_K, ...L2_K, 'join', 'taper', 'oddCut', ...FADE_K, ...PAD_K, ...SHIFTW_K, 'jitter', 'skew'],
+  split: ['layout', 'altInvert', ...RADIAL_K, ...L2_K, 'oddCut', ...FADE_K, ...PAD_K, ...SHIFTW_K, 'jitter', 'skew'],
   burst: ['layout', 'altInvert', 'orient', ...PAD_K, ...L2_K, ...GROW_K, ...FADE_K, ...SHIFTW_K, 'jitter', 'skew', 'join', 'taper', 'anchor'],
-  mirror: ['layout', 'orient', 'padX', ...RADIAL_K, ...L2_K, ...GROW_K, 'rowGrowth', 'oddCut', ...FADE_K, ...SHIFTW_K, 'jitter', 'skew', 'rowVar', 'join', 'taper', 'bevel', 'radius'],
+  mirror: ['layout', 'orient', 'padX', ...RADIAL_K, ...L2_K, ...GROW_K, 'rowGrowth', 'oddCut', ...FADE_K, ...SHIFTW_K, 'jitter', 'skew', 'rowVar', 'bevel', 'radius'],
+  reveal: ['layout', 'altInvert', ...RADIAL_K, ...L2_K, ...GROW_K, 'rowGrowth', 'oddCut', ...FADE_K, ...PAD_K, ...SHIFTW_K, 'jitter', 'skew', 'join', 'taper', 'bevel', 'bgMode', 'bg1', 'bg2', 'bgAngle', 'bgHint', 'fillMode', 'palette', 'fillAngle', 'swap'],
   dual: ['layout', 'altInvert', ...RADIAL_K, ...GROW_K, 'rowGrowth', 'oddCut', 'join', 'taper', ...SHIFTW_K, 'jitter', 'skew', 'bevel'],
 };
 function curHide() {
@@ -948,6 +1058,53 @@ function mkPalette(it) {
   return row;
 }
 function palColorHex(st, v) { const c = palColor(st, v); if (c.startsWith('#')) return c; const m = c.match(/\d+/g).map(Number); return '#' + m.map(x => x.toString(16).padStart(2, '0')).join(''); }
+function mkRevImage(it) {
+  const row = document.createElement('div'); row.className = 'row full';
+  const box = document.createElement('div'); box.className = 'imgbox';
+  const th = document.createElement('div'); th.className = 'thumb';
+  const col = document.createElement('div'); col.className = 'btnrow';
+  const up = document.createElement('button'); up.className = 'btn sm'; up.type = 'button'; up.textContent = 'Upload photo'; up.onclick = () => $('#fileRev').click();
+  const cl = document.createElement('button'); cl.className = 'btn sm'; cl.type = 'button'; cl.textContent = 'Clear'; cl.onclick = () => { REV = null; controls.__rev.update(); dirty = true; };
+  const dr = document.createElement('button'); dr.className = 'btn sm'; dr.type = 'button'; dr.textContent = 'Shape bars from photo';
+  dr.title = 'Use the photo’s light and dark areas to set bar widths';
+  dr.onclick = () => { if (!REV) return; const g = lumFrom(REV.orig, REV.orig.width, REV.orig.height); IMG = Object.assign(g, { tc: REV.tc }); if (VID) { VID.pause(); VID = null; } P.mode = 'image'; syncControls(); refreshVisibility(); controls.__image && controls.__image.update(); dirty = true; scheduleCommit(); toast('Bars now follow the photo'); };
+  const hint = document.createElement('div'); hint.className = 'hint';
+  col.append(up, cl, dr); box.append(th, col);
+  const wrap = document.createElement('div'); wrap.style.display = 'grid'; wrap.style.gap = '6px'; wrap.append(box, hint);
+  row.append(document.createElement('span'), wrap);
+  controls.__rev = { update() { showThumb(th, REV && REV.tc); cl.disabled = !REV; dr.disabled = !REV; hint.textContent = REV ? 'Photo is kept in this tab only. Re-upload after reloading.' : 'No photo yet. A grey placeholder shows until you add one.'; }, row };
+  return row;
+}
+async function decodeImage(file) {
+  if (window.createImageBitmap) { try { return await createImageBitmap(file); } catch (e) { } }
+  return await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = fr.result; };
+    fr.onerror = rej; fr.readAsDataURL(file);
+  });
+}
+function thumbCanvas(src, w, h) { const tc = document.createElement('canvas'), tk = 80 / Math.max(w, h); tc.width = Math.max(1, Math.round(w * tk)); tc.height = Math.max(1, Math.round(h * tk)); tc.getContext('2d').drawImage(src, 0, 0, tc.width, tc.height); return tc; }
+function showThumb(th, tc) {
+  th.innerHTML = '';
+  if (!tc) return;
+  const c = document.createElement('canvas'); c.width = tc.width; c.height = tc.height; c.getContext('2d').drawImage(tc, 0, 0);
+  c.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block'; th.append(c);
+}
+$('#fileRev').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return; e.target.value = '';
+  let im;
+  try { im = await decodeImage(f); } catch (er) { toast('That file couldn’t be read as an image. Try a JPG or PNG.'); return; }
+  const m = 2400, k = Math.min(1, m / Math.max(im.width, im.height));
+  const w = Math.max(1, Math.round(im.width * k)), h = Math.max(1, Math.round(im.height * k));
+  const o = document.createElement('canvas'); o.width = w; o.height = h; o.getContext('2d').drawImage(im, 0, 0, w, h);
+  const g = document.createElement('canvas'); g.width = w; g.height = h; const gx = g.getContext('2d');
+  gx.drawImage(o, 0, 0); const id = gx.getImageData(0, 0, w, h), d = id.data;
+  for (let i = 0; i < d.length; i += 4) { const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; d[i] = d[i + 1] = d[i + 2] = l; }
+  gx.putImageData(id, 0, 0);
+  if (im.close) im.close();
+  REV = { orig: o, gray: g, tc: thumbCanvas(o, w, h) };
+  controls.__rev.update(); dirty = true; toast('Photo loaded');
+});
 function mkImage(it) {
   const row = document.createElement('div'); row.className = 'row full';
   const box = document.createElement('div'); box.className = 'imgbox';
@@ -959,7 +1116,7 @@ function mkImage(it) {
   col.append(up, cl); box.append(th, col);
   const wrap = document.createElement('div'); wrap.style.display = 'grid'; wrap.style.gap = '6px'; wrap.append(box, hint);
   row.append(document.createElement('span'), wrap);
-  controls.__image = { update() { th.style.backgroundImage = IMG ? `url(${IMG.url})` : 'none'; cl.disabled = !IMG; hint.textContent = IMG ? (VID ? 'Video plays with the timeline and loops. ' : '') + 'Darker areas make wider bars. Use Invert to flip.' : 'Nothing loaded yet. Faces, high-contrast photos and simple motion clips work well.'; }, row };
+  controls.__image = { update() { showThumb(th, IMG && IMG.tc); cl.disabled = !IMG; hint.textContent = IMG ? (VID ? 'Video plays with the timeline and loops. ' : '') + 'Darker areas make wider bars. Use Invert to flip.' : 'Nothing loaded yet. Faces, high-contrast photos and simple motion clips work well.'; }, row };
   return row;
 }
 function mkButtons(it) {
@@ -980,7 +1137,7 @@ function mkSize(it) {
 function buildPanel() {
   const vb = document.createElement('div'); vb.className = 'vars'; vb.id = 'vars'; panel.append(vb);
   SCHEMA.forEach((sec, si) => {
-    const el = document.createElement('section'); el.className = 'sec' + (si >= 5 ? ' closed' : '');
+    const el = document.createElement('section'); el.className = 'sec' + (['Motion', 'Export'].includes(sec.title) ? ' closed' : '');
     const h = document.createElement('button'); h.className = 'sec-h'; h.type = 'button';
     const chev = document.createElement('span'); chev.className = 'chev';
     const setC = () => { chev.textContent = el.classList.contains('closed') ? '+' : '−'; h.setAttribute('aria-expanded', !el.classList.contains('closed')); };
@@ -997,6 +1154,7 @@ function buildPanel() {
         case 'color': node = mkColor(it); break;
         case 'palette': node = mkPalette(it); break;
         case 'image': node = mkImage(it); break;
+        case 'revimage': node = mkRevImage(it); break;
         case 'buttons': node = mkButtons(it); break;
         case 'sizePreset': node = mkSize(it); break;
         case 'sub': node = document.createElement('div'); node.className = 'sub'; node.textContent = it.label; break;
@@ -1278,7 +1436,7 @@ function lumFrom(src, sw, sh) {
 function grabVideo() {
   if (!VID || VID.readyState < 2 || !VID.videoWidth) return;
   const g = lumFrom(VID, VID.videoWidth, VID.videoHeight);
-  if (IMG) { IMG.w = g.w; IMG.h = g.h; IMG.d = g.d; } else IMG = Object.assign(g, { url: '' });
+  if (IMG) { IMG.w = g.w; IMG.h = g.h; IMG.d = g.d; } else IMG = Object.assign(g, { tc: null });
 }
 async function seekVideo(t) {
   const dur = VID.duration || 0, tt = dur ? (t * P.vidRate) % dur : 0;
@@ -1302,22 +1460,21 @@ $('#fileImg').addEventListener('change', e => {
       if (VID && VID !== v) VID.pause();
       VID = v; v.onseeked = () => { dirty = true; };
       const g = lumFrom(v, v.videoWidth, v.videoHeight);
-      IMG = Object.assign(g, { url: grabC.toDataURL('image/jpeg', 0.7) });
+      IMG = Object.assign(g, { tc: thumbCanvas(grabC, grabC.width, grabC.height) });
       mediaLoaded('Video');
     };
     v.onerror = () => toast('That video couldn’t be played in this browser. Try an MP4 (H.264) or WebM.');
     v.src = url; v.load();
     return;
   }
-  const im = new Image();
-  im.onload = () => {
+  URL.revokeObjectURL(url);
+  decodeImage(f).then(im => {
     if (VID) { VID.pause(); VID = null; }
     const g = lumFrom(im, im.width, im.height);
-    IMG = Object.assign({ w: g.w, h: g.h, d: new Float32Array(g.d) }, { url });
+    IMG = Object.assign({ w: g.w, h: g.h, d: new Float32Array(g.d) }, { tc: thumbCanvas(im, im.width, im.height) });
+    if (im.close) im.close();
     mediaLoaded('Image');
-  };
-  im.onerror = () => toast('That file couldn’t be read as an image');
-  im.src = url;
+  }).catch(() => toast('That file couldn’t be read as an image. Try a JPG or PNG.'));
 });
 $('#fileJson').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return; e.target.value = '';
@@ -1335,9 +1492,11 @@ const VARS = [
     ['Fine weave', { cols: 120, rows: 40, rowGap: 1, minW: 0.15, maxW: 0.85, scale: 3.4, octaves: 3, rowShift: 0.5, bevel: 0, shiftWave: 0.3, shiftFreq: 2, shiftSpeed: 0.5 }],
   ] },
   { id: 'diagonal', name: 'Diagonal steps', P: { orient: 'h', mode: 'gradient', gradAngle: 315, gradRepeat: 1, cols: 32, rows: 6, minW: 0.04, maxW: 1, contrast: 1.8, anchor: 'left', taper: 3, radius: 2, bg1: '#ffffff', fill1: '#000000' } },
-  { id: 'split', name: 'Frequency split', P: { orient: 'h', mode: 'gradient', join: 'separate', cols: 48, colGrowth: 0.5, rows: 5, rowGrowth: 1.15, minW: 0.35, maxW: 0.35, anchor: 'left', bevel: 0, bg1: '#000000', fill1: '#ffffff' } },
+  { id: 'split', name: 'Frequency split', P: { orient: 'h', mode: 'noise', join: 'connected', taper: 4, cols: 48, colGrowth: 0.5, growEvery: 3, rows: 15, rowGrowth: 1.04, minW: 0.18, maxW: 0.82, contrast: 1.7, scale: 2, anchor: 'center', rowShift: 0, bevel: 0, bg1: '#000000', fill1: '#ffffff' } },
   { id: 'burst', name: 'Sunburst', P: { layout: 'radial', mode: 'gradient', gradAngle: 90, join: 'separate', cols: 24, rows: 2, rowGrowth: 2.2, steps: 2, contrast: 1, minW: 0.3, maxW: 0.65, oddCut: 0.55, radInner: 0.32, radOuter: 1.3, bevel: 0, bg1: '#ffffff', fill1: '#000000' } },
-  { id: 'mirror', name: 'Mirror ramps', P: { width: 1080, height: 1920, mode: 'gradient', gradAngle: 0, gradRepeat: 1, invert: true, altInvert: true, contrast: 1.3, cols: 20, rows: 2, join: 'separate', anchor: 'alternate', rowShift: 0, minW: 0, maxW: 0.7, bevel: 0, padTop: 0.22, bg1: '#000000', fill1: '#ffffff', gradSpeed: 0.2 } },
+  { id: 'mirror', name: 'Mirror ramps', P: { width: 1080, height: 1920, mode: 'gradient', gradAngle: 0, gradRepeat: 1, invert: true, altInvert: true, flipEvery: 4, noiseMix: 0.55, scale: 3, contrast: 1.5, cols: 20, rows: 8, join: 'connected', taper: 6, anchor: 'center', rowShift: 0, minW: 0.04, maxW: 0.85, bevel: 0, padTop: 0.22, bg1: '#000000', fill1: '#ffffff', gradSpeed: 0.2 } },
+  { id: 'reveal', name: 'Image reveal', P: { revOn: true, sizePx: true, colW: 45, rowH: 168, revWaves: 3, revBarW: 0.85, revEnd: 0.2, width: 1080, height: 1350, cols: 24, rows: 8, join: 'separate', bevel: 0, rowShift: 0, anchor: 'center', minW: 0.04, maxW: 0.16, fill1: '#ffffff', revType: 'windows', revTiming: 'center', revAngle: 65, revSpread: 0.35, revInfluence: 0.7, contrast: 1.6, scale: 1.6, speed: 0.2, duration: 6, revProgress: 0 },
+    A: { revProgress: [{ t: 0.3, v: 0, e: 'linear' }, { t: 5.5, v: 1, e: 'linear' }] } },
   { id: 'dual', name: 'Dual blend', P: { width: 1920, height: 1080, bg1: '#000000', mode: 'gradient', gradType: 'radial', gradCX: 0.42, gradCY: 0.62, gradRepeat: 1, invert: true, curve: 1.4, contrast: 1.7, bias: 0.15, noiseMix: 0.15, cols: 14, rows: 6, join: 'separate', bevel: 0, rowShift: 0, minW: 0.02, maxW: 0.3, fadeOpacity: 0.92, hideBelow: 0.04, padX: 0.34, padY: 0.24, fill1: '#ffffff', l2On: true, l2Color: '#8c8c8c', l2Blend: 'screen', l2OffX: 0.12, l2OffY: 0.26, l2ColOff: 0.5, speed: 0.15, duration: 8 },
     A: { l2OffX: [{ t: 0, v: 0.12, e: 'easeInOut' }, { t: 4, v: -0.18, e: 'easeInOut' }, { t: 8, v: 0.12, e: 'easeInOut' }],
       l2OffY: [{ t: 0, v: 0.26, e: 'easeInOut' }, { t: 4, v: 0.05, e: 'easeInOut' }, { t: 8, v: 0.26, e: 'easeInOut' }],
@@ -1350,13 +1509,54 @@ function loadSaved() { return lsGet(LS, []); }
 function storeSaved(list) { return lsSet(LS, list); }
 let curVar = 'stacks';
 const clone = o => JSON.parse(JSON.stringify(o));
+
+/* Team storage: /api/presets on Vercel (Blob). Falls back to this browser when it isn't there. */
+const TEAM = { online: false, loaded: false, busy: false, items: [] };
+const LSK = 'stripe-studio-team-key';
+async function teamLoad() {
+  try {
+    const r = await fetch('/api/presets', { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    TEAM.items = Array.isArray(j.items) ? j.items : []; TEAM.online = true;
+  } catch (e) { TEAM.online = false; }
+  TEAM.loaded = true;
+  renderVars();
+  if (!$('#menu').hidden) renderMenu();
+}
+async function teamCall(method, body) {
+  const send = () => fetch('/api/presets', { method, headers: { 'Content-Type': 'application/json', 'x-presets-key': lsGet(LSK, '') || '' }, body: JSON.stringify(body) });
+  let r = await send();
+  if (r.status === 401) {
+    const k = window.prompt('Enter the team key to save or delete shared presets');
+    if (!k) throw new Error('No team key entered');
+    lsSet(LSK, k.trim()); r = await send();
+    if (r.status === 401) { lsSet(LSK, ''); throw new Error('Wrong team key'); }
+  }
+  if (!r.ok) { let m = 'Error ' + r.status; try { m = (await r.json()).error || m; } catch (e) { } throw new Error(m); }
+  return r.json();
+}
+async function teamDo(label, fn) {
+  if (TEAM.busy) return; TEAM.busy = true;
+  try { await fn(); await teamLoad(); toast(label); }
+  catch (e) { toast('Couldn’t reach team storage: ' + (e && e.message || e)); }
+  finally { TEAM.busy = false; }
+}
+function customVars() {
+  if (TEAM.online) return TEAM.items.filter(x => x.kind === 'variation').map(x => ({ id: x.id, name: x.name, builtin: false, data: x.data, presets: [], base: x.base, url: x.url }));
+  return lsGet(LSV, []).map(v => ({ id: v.id, name: v.name, builtin: false, data: v.data, presets: [], base: v.base }));
+}
+function savedPresets(vid) {
+  if (TEAM.online) return TEAM.items.filter(x => x.kind === 'preset' && (x.v || 'stacks') === vid);
+  return loadSaved().filter(x => (x.v || 'stacks') === vid);
+}
 function allVars() {
   const hidden = lsGet(LSHV, []);
   const b = VARS.filter(v => !hidden.includes(v.id)).map(v => ({ id: v.id, name: v.name, builtin: true, data: { P: Object.assign(defaults(), clone(v.P)), A: clone(v.A || {}) }, presets: v.presets || [] }));
-  const c = lsGet(LSV, []).map(v => ({ id: v.id, name: v.name, builtin: false, data: v.data, presets: [], base: v.base }));
-  return b.concat(c);
+  return b.concat(customVars());
 }
 const varById = id => allVars().find(v => v.id === id);
+const baseOfCur = () => { const v = varById(curVar) || {}; return v.builtin ? curVar : (v.base || null); };
 function applyState(st) {
   P = Object.assign(defaults(), clone(st.P || {}));
   A = clone(st.A || {});
@@ -1365,16 +1565,24 @@ function applyState(st) {
   syncControls(); refreshVisibility(); syncTransport(); renderRuler(); renderTracks(); resize();
 }
 function selectVar(id) { const v = varById(id); if (!v) return; curVar = id; applyState(v.data); renderVars(); }
-function removeVar(v) {
-  if (v.builtin) lsSet(LSHV, lsGet(LSHV, []).concat(v.id)); else lsSet(LSV, lsGet(LSV, []).filter(x => x.id !== v.id));
-  toast('Removed ' + v.name);
+function afterVarRemoved(v) {
   if (curVar === v.id) { const first = allVars()[0]; if (first) { selectVar(first.id); return; } curVar = null; }
   renderVars();
+}
+function removeVar(v) {
+  if (v.builtin) { lsSet(LSHV, lsGet(LSHV, []).concat(v.id)); toast('Removed ' + v.name); afterVarRemoved(v); return; }
+  if (TEAM.online) {
+    if (!window.confirm('Delete “' + v.name + '” for everyone on the team?')) return;
+    teamDo('Deleted ' + v.name, async () => { await teamCall('DELETE', { url: v.url }); }).then(() => afterVarRemoved(v));
+    return;
+  }
+  lsSet(LSV, lsGet(LSV, []).filter(x => x.id !== v.id)); toast('Removed ' + v.name); afterVarRemoved(v);
 }
 function drawThumb(c, data) {
   c.width = 256; c.height = 104;
   const q = Object.assign(defaults(), clone(data.P));
   for (const k in (data.A || {})) if (data.A[k] && data.A[k].length) q[k] = data.A[k][0].v;
+  if (q.revOn) q.revProgress = 0.55;
   try { drawFrame(c.getContext('2d'), q, 0, Math.max(c.width / q.width, c.height / q.height)); } catch (e) { }
 }
 function renderVars() {
@@ -1393,7 +1601,7 @@ function renderVars() {
     b.setAttribute('aria-pressed', v.id === curVar);
     const c = document.createElement('canvas');
     const n = document.createElement('span'); n.className = 'vn'; n.textContent = v.name;
-    const x = document.createElement('span'); x.className = 'vx'; x.textContent = '×'; x.title = 'Remove variation';
+    const x = document.createElement('span'); x.className = 'vx'; x.textContent = '×'; x.title = v.builtin ? 'Hide variation' : (TEAM.online ? 'Delete for the team' : 'Remove variation');
     x.onclick = e => { e.stopPropagation(); removeVar(v); };
     b.onclick = () => selectVar(v.id);
     b.append(c, n, x); grid.append(b);
@@ -1405,12 +1613,16 @@ function renderVars() {
   const inp = document.createElement('input'); inp.className = 'hex'; inp.placeholder = 'New variation name'; inp.setAttribute('aria-label', 'New variation name');
   const sb = document.createElement('button'); sb.className = 'btn sm'; sb.type = 'button'; sb.textContent = 'Save as variation';
   const doSave = () => {
-    const name = inp.value.trim() || 'Variation ' + (list.length + 1), id = 'u' + Date.now().toString(36);
-    const custom = lsGet(LSV, []); custom.push({ id, name, base: (varById(curVar) || {}).builtin ? curVar : ((varById(curVar) || {}).base || null), data: clone({ P, A }) });
+    const name = inp.value.trim() || 'Variation ' + (list.length + 1), id = 'u' + Date.now().toString(36), base = baseOfCur();
+    if (TEAM.online) { teamDo('Saved variation ' + name + ' for the team', async () => { await teamCall('POST', { kind: 'variation', id, name, base, data: clone({ P, A }) }); curVar = id; }); return; }
+    const custom = lsGet(LSV, []); custom.push({ id, name, base, data: clone({ P, A }) });
     if (lsSet(LSV, custom)) { curVar = id; renderVars(); toast('Saved variation ' + name); }
   };
   sb.onclick = doSave; inp.onkeydown = e => { if (e.key === 'Enter') doSave(); };
   row.append(inp, sb); box.append(row);
+  const st = document.createElement('div'); st.className = 'hint';
+  st.textContent = !TEAM.loaded ? 'Checking team storage…' : TEAM.online ? 'Saved variations and presets are shared with everyone using this tool.' : 'Team storage isn’t set up here, so saves stay in this browser.';
+  box.append(st);
   const hidden = lsGet(LSHV, []);
   if (hidden.length) {
     const rb = document.createElement('button'); rb.className = 'btn sm'; rb.type = 'button'; rb.textContent = 'Restore built-in variations (' + hidden.length + ')';
@@ -1428,38 +1640,58 @@ function renderMenu() {
     m.append(b);
   };
   const v = varById(curVar), vid = curVar || 'none';
-  h('Presets in ' + (v ? v.name : 'this variation'));
+  h('Presets in ' + (v ? v.name : 'this variation') + (TEAM.online ? ', shared with the team' : ', this browser only'));
   const hiddenP = lsGet(LSHP, []);
   let count = 0;
   if (v) v.presets.filter(([n]) => !hiddenP.includes(vid + ':' + n)).forEach(([n, o]) => {
-    count++; item(n, () => applyState({ P: Object.assign({}, v.data.P, o), A: v.data.A }), () => { lsSet(LSHP, hiddenP.concat(vid + ':' + n)); renderMenu(); }, 'Remove preset');
+    count++; item(n, () => applyState({ P: Object.assign({}, v.data.P, o), A: v.data.A }), () => { lsSet(LSHP, hiddenP.concat(vid + ':' + n)); renderMenu(); }, 'Hide preset');
   });
-  const saved = loadSaved();
-  saved.forEach((sv, i) => {
-    if ((sv.v || 'stacks') !== vid) return;
-    count++; item(sv.name, () => applyState(sv.data), () => { saved.splice(i, 1); storeSaved(saved); renderMenu(); });
+  const mine = savedPresets(vid);
+  mine.forEach(sv => {
+    count++;
+    item(sv.name, () => applyState(sv.data), () => {
+      if (TEAM.online) {
+        if (!window.confirm('Delete “' + sv.name + '” for everyone on the team?')) return;
+        teamDo('Deleted ' + sv.name, () => teamCall('DELETE', { url: sv.url }));
+      } else { const all = loadSaved(); const i = all.findIndex(x => x.name === sv.name && (x.v || 'stacks') === vid); if (i >= 0) { all.splice(i, 1); storeSaved(all); } renderMenu(); }
+    }, TEAM.online ? 'Delete for the team' : 'Delete preset');
   });
   if (!count) { const e = document.createElement('div'); e.className = 'menu-empty'; e.textContent = 'No presets here yet.'; m.append(e); }
   const myHidden = hiddenP.filter(k => k.startsWith(vid + ':'));
-  if (myHidden.length) item('Restore removed presets (' + myHidden.length + ')', () => lsSet(LSHP, hiddenP.filter(k => !k.startsWith(vid + ':'))));
+  if (myHidden.length) item('Restore hidden presets (' + myHidden.length + ')', () => lsSet(LSHP, hiddenP.filter(k => !k.startsWith(vid + ':'))));
   h('Save current settings as a preset');
   const r = document.createElement('div'); r.className = 'menu-row';
   const inp = document.createElement('input'); inp.className = 'hex'; inp.placeholder = 'Preset name'; inp.setAttribute('aria-label', 'Preset name');
   const sb = document.createElement('button'); sb.className = 'btn'; sb.type = 'button'; sb.textContent = 'Save';
   const doSave = () => {
     const n = inp.value.trim() || 'Preset ' + (count + 1);
-    const entry = { name: n, v: vid, data: clone({ P, A }) }, ix = saved.findIndex(x => x.name === n && (x.v || 'stacks') === vid);
-    if (ix >= 0) saved[ix] = entry; else saved.push(entry);
-    if (storeSaved(saved)) { toast('Saved preset ' + n); renderMenu(); }
+    if (TEAM.online) {
+      const old = mine.find(x => x.name === n);
+      teamDo('Saved preset ' + n + ' for the team', () => teamCall('POST', { kind: 'preset', name: n, v: vid, data: clone({ P, A }), replaceUrl: old ? old.url : null }));
+      return;
+    }
+    const all = loadSaved();
+    const entry = { name: n, v: vid, data: clone({ P, A }) }, ix = all.findIndex(x => x.name === n && (x.v || 'stacks') === vid);
+    if (ix >= 0) all[ix] = entry; else all.push(entry);
+    if (storeSaved(all)) { toast('Saved preset ' + n); renderMenu(); }
   };
   sb.onclick = doSave; inp.onkeydown = e => { if (e.key === 'Enter') doSave(); };
   r.append(inp, sb); m.append(r);
+  const localP = loadSaved(), localV = lsGet(LSV, []);
+  if (TEAM.online && (localP.length || localV.length)) {
+    item('Share ' + (localP.length + localV.length) + ' saves from this browser with the team', () => {
+      teamDo('Shared with the team', async () => {
+        for (const x of localV) await teamCall('POST', { kind: 'variation', id: x.id, name: x.name, base: x.base || null, data: x.data });
+        for (const x of localP) await teamCall('POST', { kind: 'preset', name: x.name, v: x.v || 'stacks', data: x.data });
+        storeSaved([]); lsSet(LSV, []);
+      });
+    });
+  }
   const r2 = document.createElement('div'); r2.className = 'menu-row';
   const ex = document.createElement('button'); ex.className = 'btn sm'; ex.textContent = 'Export JSON'; ex.onclick = () => { exportJSON(); m.hidden = true; };
   const im = document.createElement('button'); im.className = 'btn sm'; im.textContent = 'Import JSON'; im.onclick = () => { $('#fileJson').click(); m.hidden = true; };
   const rs = document.createElement('button'); rs.className = 'btn sm'; rs.textContent = 'Reset variation'; rs.onclick = () => { if (v) selectVar(v.id); else applyState({ P: defaults(), A: {} }); m.hidden = true; };
   r2.append(ex, im, rs); m.append(r2);
-  const br = $('#bPresets').getBoundingClientRect(), tr = document.querySelector('.top').getBoundingClientRect();
 }
 $('#bPresets').onclick = e => { e.stopPropagation(); const m = $('#menu'); if (m.hidden) { renderMenu(); m.hidden = false; } else m.hidden = true; };
 document.addEventListener('pointerdown', e => { if (!e.target.closest('#menu') && !e.target.closest('#bPresets')) $('#menu').hidden = true; });
@@ -1508,6 +1740,7 @@ new ResizeObserver(() => updatePlayhead()).observe(ruler);
 resize();
 { const vs = allVars(); if (!vs.find(v => v.id === 'stacks') && vs.length) selectVar(vs[0].id); else renderVars(); }
 commit(); updUndo();
+if (location.protocol.startsWith('http')) teamLoad(); else { TEAM.loaded = true; renderVars(); }
 requestAnimationFrame(tick);
 })();
 </script>
